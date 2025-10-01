@@ -2,5 +2,81 @@
 title: "p8105_hw2_bx2232"
 output: github_document
 ---
+#Problem 1
+# pols-month
+```{r}
+pols_df <- read_csv("fivethirtyeight_datasets/pols-month.csv", na = c("NA", ".", "")) %>% 
+  janitor::clean_names() %>% 
+  separate(mon, into = c("year", "month", "day"), sep = "-") %>% 
+  mutate(
+    year = as.integer(year),
+    month = factor(month.name[as.integer(month)],
+                   levels = month.name,
+                   ordered = TRUE),
+    president = case_when(
+      prez_dem == 1 ~ "dem",
+      prez_gop == 1 ~ "gop",
+      TRUE ~ NA_character_
+    )
+  ) %>% 
+  select(-prez_dem, -prez_gop, -day) %>% 
+  select(year, month, everything())
 
+pols_df
+```
+#snp
+```{r}
+snp_df <- read_csv("fivethirtyeight_datasets/snp.csv", na = c("NA", ".", "")) %>% 
+  janitor::clean_names() %>% 
+  separate(date, into = c("year", "month", "day"), sep = "-") %>% 
+  mutate(
+    year = as.integer(year),
+    month = factor(month.name[as.integer(month)],
+                   levels = month.name,
+                   ordered = TRUE)
+  ) %>% 
+  select(year, month, close) %>% 
+  arrange(year, month)
 
+snp_df
+
+```
+#unemployment
+```{r}
+unemp_df <- read_csv("fivethirtyeight_datasets/unemployment.csv", na = c("NA", ".", "")) %>% 
+  janitor::clean_names() %>% 
+  pivot_longer(
+    cols = -year,
+    names_to = "month",
+    values_to = "unemployment"
+  ) %>% 
+  mutate(
+    year = as.integer(year),
+    month = factor(
+      month.name[match(month, tolower(month.abb))],
+      levels = month.name,
+      ordered = TRUE
+    )
+  ) %>% 
+  arrange(year, month)
+
+unemp_df
+
+```
+#join all data together
+```{r}
+merged_df <- pols_df %>% 
+  left_join(snp_df,  by = c("year","month")) %>% 
+  left_join(unemp_df, by = c("year","month")) %>% 
+  arrange(year, month)
+
+merged_df
+
+```
+
+```{r}
+summary(pols_df)
+summary(snp_df)
+summary(unemp_df)
+summary(merged_df)
+```
