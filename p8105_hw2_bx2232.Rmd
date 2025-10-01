@@ -2,6 +2,16 @@
 title: "p8105_hw2_bx2232"
 output: github_document
 ---
+```{r}
+library(tidyverse)
+library(lubridate)
+library(readxl)
+library(haven)
+```
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+```
 #Problem 1
 # pols-month
 ```{r}
@@ -80,3 +90,4 @@ summary(snp_df)
 summary(unemp_df)
 summary(merged_df)
 ```
+
