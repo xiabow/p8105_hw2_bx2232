@@ -91,3 +91,165 @@ summary(unemp_df)
 summary(merged_df)
 ```
 
+#Problem 2
+# Mr. Trash Wheel
+```{r}
+mr_df <- readxl::read_excel(
+  "202509 Trash Wheel Collection Data.xlsx",
+  sheet = "Mr. Trash Wheel",
+  range = readxl::cell_limits(ul = c(2, 1), lr = c(NA, NA))
+) %>% 
+  janitor::clean_names() %>% 
+  filter(!is.na(dumpster)) %>% 
+  mutate(
+    date = as.Date(date),
+    year = as.integer(lubridate::year(date)),
+    month = factor(
+      month.name[lubridate::month(date)],
+      levels = month.name,
+      ordered = TRUE
+    ),
+    sports_balls = as.integer(round(sports_balls)),
+    wheel = "Mr"
+  ) %>% 
+  select(wheel, dumpster, date, year, month, everything())
+
+mr_df
+```
+# Professor Trash Wheel
+```{r}
+prof_df <- readxl::read_excel(
+  "202509 Trash Wheel Collection Data.xlsx",
+  sheet = "Professor Trash Wheel",
+  range = readxl::cell_limits(ul = c(2, 1), lr = c(NA, NA))
+) %>%
+  janitor::clean_names() %>%
+  filter(!is.na(dumpster)) %>%
+  mutate(
+    date  = as.Date(date),
+    year  = as.integer(lubridate::year(date)),
+    month = factor(month.name[lubridate::month(date)], levels = month.name, ordered = TRUE),
+    wheel = "Professor"
+  ) %>%
+  select(wheel, dumpster, date, year, month, everything())
+
+prof_df
+```
+
+#Gwynns Falls Trash Wheel
+```{r}
+gwyn_df <- readxl::read_excel(
+  "202509 Trash Wheel Collection Data.xlsx",
+  sheet = "Gwynns Falls Trash Wheel",
+  range = readxl::cell_limits(ul = c(2, 1), lr = c(NA, NA))
+) %>% 
+  janitor::clean_names() %>% 
+  filter(!is.na(dumpster)) %>% 
+  mutate(
+    date = as.Date(date),
+    year = as.integer(lubridate::year(date)),
+    month = factor(month.name[lubridate::month(date)], levels = month.name, ordered = TRUE),
+    sports_balls = if ("sports_balls" %in% names(.)) as.integer(round(sports_balls)) else NA_integer_,
+    wheel = "Gwynns Falls Trash Wheel"
+  ) %>% 
+  select(wheel, dumpster, date, year, month, everything())
+
+gwyn_df
+```
+The combined Trash Wheel dataset contains `r nrow(trash_df)` observations across `r length(unique(trash_df$wheel))` wheels (`r paste(sort(unique(trash_df$wheel)), collapse = ", ")`). Each row represents one dumpster collection with key variables such as `r paste(intersect(c("dumpster","date","year","month","weight_tons","volume_cubic_yards","plastic_bottles","polystyrene","cigarette_butts","sports_balls"), names(trash_df)), collapse = ", ")`. For the available data, the **total weight** collected by **Professor Trash Wheel** is `r round(sum(trash_df$weight_tons[trash_df$wheel == "Professor"], na.rm = TRUE), 1)` tons. The **total number of cigarette butts** collected by **Gwynns Falls Trash Wheel** in **June 2022** is `r sum(trash_df$cigarette_butts[trash_df$wheel == "Gwynnda" & trash_df$year == 2022 & trash_df$month == "June"], na.rm = TRUE)`.
+
+#problem 3
+
+```{r}
+zc_df <- readr::read_csv("zillow_data/Zip Codes.csv", na = c("NA", ".", "")) %>%
+  janitor::clean_names() %>%
+  mutate(zip_code = as.character(zip_code))
+
+nyc_wide <- readr::read_csv("zillow_data/Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv",
+                            na = c("NA", ".", "")) %>%
+  janitor::clean_names() %>%
+  rename(zip_code = region_name) %>%
+  mutate(zip_code = as.character(zip_code))
+
+glimpse(zc_df)
+glimpse(nyc_wide)
+
+```
+
+```{r}
+id_cols <- c("zip_code","city","county","state","state_name","metro","cbsa",
+             "borough","neighborhood","region_id","region_type","size_rank","county_name")
+id_cols <- intersect(id_cols, names(nyc_wide))
+name_is_date <- stringr::str_detect(
+  names(nyc_wide),
+  "^x?\\d{4}[_-]\\d{2}([_-]\\d{2})?$|^\\d{1,2}/\\d{1,2}/\\d{2,4}$"
+)
+
+date_cols <- names(nyc_wide)[name_is_date]
+if (length(date_cols) == 0) {
+  # Fallback: treat all numeric, non-ID columns as monthly values
+  cand <- setdiff(names(nyc_wide), id_cols)
+  date_cols <- cand[sapply(nyc_wide[cand], is.numeric)]
+}
+
+nyc_long <- nyc_wide %>%
+  tidyr::pivot_longer(
+    cols = tidyselect::all_of(date_cols),
+    names_to = "date_str",
+    values_to = "rent_index"
+  ) %>%
+  mutate(
+    date_str = stringr::str_remove(date_str, "^x"),      
+    date_str = stringr::str_replace_all(date_str, "_", "-")
+  ) %>%
+  mutate(
+    date = suppressWarnings(lubridate::ymd(date_str)),
+    date = dplyr::if_else(is.na(date),
+                          suppressWarnings(lubridate::mdy(date_str)),
+                          date),
+    date = dplyr::if_else(is.na(date),
+                          suppressWarnings(lubridate::ymd(paste0(date_str, "-01"))),
+                          date)
+  ) %>%
+  mutate(
+    year  = lubridate::year(date),
+    month = factor(month.name[lubridate::month(date)],
+                   levels = month.name, ordered = TRUE)
+  ) %>%
+  select(zip_code, year, month, date, rent_index)
+
+glimpse(nyc_long)
+```
+
+```{r}
+tidy_df <- nyc_wide %>%
+  left_join(zc_df, by = "zip_code")
+
+tidy_df <- tidy_df %>%
+  relocate(zip_code, city, county, state, .before = 1)
+glimpse(tidy_df)
+```
+
+```{r}
+list(
+  total_observations      = nrow(tidy_df),
+  unique_zip_codes        = dplyr::n_distinct(tidy_df$zip_code),
+  unique_neighborhoods    = dplyr::n_distinct(stats::na.omit(tidy_df$neighborhood))
+)
+```
+
+```{r}
+zips_only_in_ref <- setdiff(zc_df$zip_code, nyc_wide$zip_code)
+
+head(zips_only_in_ref, 10)
+```
+
+```{r}
+result <- tidy_df %>%
+  mutate(diff = `x2021_01_31` - `x2020_01_31`) %>%
+  arrange(diff) %>%
+  slice_head(n = 10) %>%
+  select(zip_code, county, neighborhood, diff)
+
+```
+```
