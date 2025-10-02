@@ -7,6 +7,7 @@ library(tidyverse)
 library(lubridate)
 library(readxl)
 library(haven)
+library(janitor)
 ```
 
 ```{r}
@@ -156,100 +157,105 @@ gwyn_df <- readxl::read_excel(
 
 gwyn_df
 ```
-The combined Trash Wheel dataset contains `r nrow(trash_df)` observations across `r length(unique(trash_df$wheel))` wheels (`r paste(sort(unique(trash_df$wheel)), collapse = ", ")`). Each row represents one dumpster collection with key variables such as `r paste(intersect(c("dumpster","date","year","month","weight_tons","volume_cubic_yards","plastic_bottles","polystyrene","cigarette_butts","sports_balls"), names(trash_df)), collapse = ", ")`. For the available data, the **total weight** collected by **Professor Trash Wheel** is `r round(sum(trash_df$weight_tons[trash_df$wheel == "Professor"], na.rm = TRUE), 1)` tons. The **total number of cigarette butts** collected by **Gwynns Falls Trash Wheel** in **June 2022** is `r sum(trash_df$cigarette_butts[trash_df$wheel == "Gwynnda" & trash_df$year == 2022 & trash_df$month == "June"], na.rm = TRUE)`.
-
-#problem 3
-
 ```{r}
-zc_df <- readr::read_csv("zillow_data/Zip Codes.csv", na = c("NA", ".", "")) %>%
-  janitor::clean_names() %>%
-  mutate(zip_code = as.character(zip_code))
-
-nyc_wide <- readr::read_csv("zillow_data/Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv",
-                            na = c("NA", ".", "")) %>%
-  janitor::clean_names() %>%
-  rename(zip_code = region_name) %>%
-  mutate(zip_code = as.character(zip_code))
-
-glimpse(zc_df)
-glimpse(nyc_wide)
+trash_df <- dplyr::bind_rows(mr_df, prof_df, gwyn_df) |>
+  dplyr::arrange(wheel, date) |>
+  dplyr::select(wheel, dumpster, date, year, month, dplyr::everything())
 
 ```
 
 ```{r}
-id_cols <- c("zip_code","city","county","state","state_name","metro","cbsa",
-             "borough","neighborhood","region_id","region_type","size_rank","county_name")
-id_cols <- intersect(id_cols, names(nyc_wide))
-name_is_date <- stringr::str_detect(
-  names(nyc_wide),
-  "^x?\\d{4}[_-]\\d{2}([_-]\\d{2})?$|^\\d{1,2}/\\d{1,2}/\\d{2,4}$"
-)
+prof_total_weight <- trash_df |>
+  dplyr::filter(wheel == "Professor") |>
+  dplyr::summarise(total_weight_tons = sum(weight_tons, na.rm = TRUE)) |>
+  dplyr::pull(total_weight_tons)
 
-date_cols <- names(nyc_wide)[name_is_date]
-if (length(date_cols) == 0) {
-  # Fallback: treat all numeric, non-ID columns as monthly values
-  cand <- setdiff(names(nyc_wide), id_cols)
-  date_cols <- cand[sapply(nyc_wide[cand], is.numeric)]
-}
+gwyn_cigs_jun2022 <- trash_df |>
+  dplyr::filter(wheel == "Gwynnda", year == 2022, month == "June") |>
+  dplyr::summarise(total_cig_butts = sum(cigarette_butts, na.rm = TRUE)) |>
+  dplyr::pull(total_cig_butts)
 
-nyc_long <- nyc_wide %>%
-  tidyr::pivot_longer(
-    cols = tidyselect::all_of(date_cols),
+```
+The combined Trash Wheel dataset contains `r nrow(trash_df)` observations across
+`r length(unique(trash_df$wheel))` wheels (`r paste(sort(unique(trash_df$wheel)), collapse=", ")`).
+Key variables include `r paste(intersect(c("dumpster","date","year","month","weight_tons",
+"volume_cubic_yards","plastic_bottles","polystyrene","cigarette_butts","sports_balls"),
+names(trash_df)), collapse=", ")`. For available data, Professor Trash Wheel has collected a total of
+`r round(prof_total_weight, 1)` tons of trash. Gwynnda collected `r gwyn_cigs_jun2022`
+cigarette butts in June 2022.
+
+#problem 3
+```{r}
+zip_map <- read_csv("zillow_data/Zip Codes.csv") %>%
+  clean_names() %>%
+  mutate(zip_code = as.character(zip_code))
+
+zori_wide <- read_csv("zillow_data/Zip_zori_uc_sfrcondomfr_sm_month_NYC.csv") %>%
+  clean_names() %>%
+  rename(zip_code = region_name) %>%
+  mutate(zip_code = as.character(zip_code))
+
+glimpse(zip_map)
+glimpse(zori_wide)
+
+```
+
+```{r}
+zori_long <- zori_wide %>%
+  pivot_longer(
+    cols = starts_with("x20"),
     names_to = "date_str",
     values_to = "rent_index"
   ) %>%
   mutate(
-    date_str = stringr::str_remove(date_str, "^x"),      
-    date_str = stringr::str_replace_all(date_str, "_", "-")
-  ) %>%
-  mutate(
-    date = suppressWarnings(lubridate::ymd(date_str)),
-    date = dplyr::if_else(is.na(date),
-                          suppressWarnings(lubridate::mdy(date_str)),
-                          date),
-    date = dplyr::if_else(is.na(date),
-                          suppressWarnings(lubridate::ymd(paste0(date_str, "-01"))),
-                          date)
-  ) %>%
-  mutate(
-    year  = lubridate::year(date),
-    month = factor(month.name[lubridate::month(date)],
-                   levels = month.name, ordered = TRUE)
+    date_str = gsub("^x", "", date_str),    # remove "x"
+    date_str = gsub("_", "-", date_str),    # turn underscores to dashes
+    date = ymd(date_str),
+    year = year(date),
+    month = month(date)                     # numeric month (1 = Jan)
   ) %>%
   select(zip_code, year, month, date, rent_index)
 
-glimpse(nyc_long)
+glimpse(zori_long)
 ```
-
 ```{r}
-tidy_df <- nyc_wide %>%
-  left_join(zc_df, by = "zip_code")
-
-tidy_df <- tidy_df %>%
-  relocate(zip_code, city, county, state, .before = 1)
-glimpse(tidy_df)
+tidy_df <- zori_long %>%
+  left_join(zip_map, by = "zip_code")
 ```
 
 ```{r}
 list(
-  total_observations      = nrow(tidy_df),
-  unique_zip_codes        = dplyr::n_distinct(tidy_df$zip_code),
-  unique_neighborhoods    = dplyr::n_distinct(stats::na.omit(tidy_df$neighborhood))
+  total_observations   = nrow(tidy_df),
+  unique_zip_codes     = n_distinct(tidy_df$zip_code),
+  unique_neighborhoods = n_distinct(na.omit(tidy_df$neighborhood))
 )
 ```
 
 ```{r}
-zips_only_in_ref <- setdiff(zc_df$zip_code, nyc_wide$zip_code)
-
-head(zips_only_in_ref, 10)
+setdiff(zip_map$zip_code, zori_wide$zip_code) %>% head(10)
 ```
 
 ```{r}
-result <- tidy_df %>%
-  mutate(diff = `x2021_01_31` - `x2020_01_31`) %>%
+tidy_df <- tidy_df %>%
+  mutate(rent_index = suppressWarnings(as.numeric(rent_index)))
+
+jan_wide <- tidy_df %>%
+  filter(month == 1, year %in% c(2020, 2021)) %>%
+  group_by(zip_code, neighborhood, year) %>%
+  summarise(rent_index = mean(rent_index, na.rm = TRUE), .groups = "drop") %>%
+  tidyr::pivot_wider(
+    names_from  = year,
+    values_from = rent_index,
+    names_prefix = "y"
+  ) %>%
+  mutate(across(starts_with("y"), ~ suppressWarnings(as.numeric(.)))) %>%
+  filter(!is.na(y2020) & !is.na(y2021))
+
+top_drops <- jan_wide %>%
+  mutate(diff = y2021 - y2020) %>%
   arrange(diff) %>%
   slice_head(n = 10) %>%
-  select(zip_code, county, neighborhood, diff)
+  select(zip_code, neighborhood, diff)
 
-```
+top_drops
 ```
